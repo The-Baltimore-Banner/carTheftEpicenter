@@ -1,0 +1,313 @@
+---
+title: "Car thefts rates have tripled in Baltimore. We visited the hardest-hit neighborhood."
+author: "Greg Morton"
+date: "2023-11-10"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+# loading packages 
+library(tidyverse)
+library(tidycensus)
+library(lubridate)
+library(janitor)
+library(sf)
+library(mapview)
+library(kableExtra)
+
+# Turn off scientific notation 
+options(scipen=999)
+
+# Most recent part 1 crimes data 
+victims <- read_csv("data/victims.csv")
+
+# Baltimore neighborhoods shapefile 
+neighbs <- st_read("data/neighborhoods/Neighborhoods.shp")
+
+# Car thefts (2023)
+auto_theft_2023 <- 
+  victims %>% 
+  filter(str_detect(str_to_upper(description), "AUTO THEFT")) %>% 
+  filter(crime_date_time >= "2023-01-01")
+
+
+# Car thefts (2021 - 2023)
+auto_theft_yoy <- 
+  victims %>% 
+  filter(str_detect(str_to_upper(description), "AUTO THEFT")) %>% 
+  filter(crime_date_time >= "2021-01-01") %>% 
+  filter(!is.na(x) | !is.na(y))
+
+### Section 1: Examining car thefts by neighborhood
+
+# turn p1 crime data into a simple features object
+auto_theft_2023_sf <- 
+  auto_theft_2023 %>% 
+  filter(!is.na(x) | !is.na(y)) %>% 
+  st_as_sf(coords = c("x", "y"),
+           crs = 4326) %>% 
+  mutate(location = 
+           case_when(str_detect(location, " rd$") ~ str_replace(location, " rd$", " road"),
+                     str_detect(location, " avenue$") ~ str_replace(location, " avenue$", " ave"),
+                     str_detect(location, " street$") ~ str_replace(location, " street$", " st"),
+                     str_detect(location, " cir$") ~ str_replace(location, " cir$", " circle"),
+                     str_detect(location, " cir n$") ~ str_replace(location, " cir n$", " circle n"),
+                     str_detect(location, " cir s$") ~ str_replace(location, " cir s$", " circle s"),
+                              TRUE ~ location))
+
+
+
+auto_theft_since_2021_sf <-
+  st_as_sf(auto_theft_yoy,
+           coords = c("x", "y"),
+           crs = 4326) %>%
+  mutate(location = 
+           case_when(str_detect(location, " rd$") ~ str_replace(location, " rd$", " road"),
+                     str_detect(location, " avenue$") ~ str_replace(location, " avenue$", " ave"),
+                     str_detect(location, " street$") ~ str_replace(location, " street$", " st"),
+                     str_detect(location, " cir$") ~ str_replace(location, " cir$", " circle"),
+                     str_detect(location, " cir n$") ~ str_replace(location, " cir n$", " circle n"),
+                     str_detect(location, " cir s$") ~ str_replace(location, " cir s$", " circle s"),
+                              TRUE ~ location)) 
+
+# intersect crime data and neighborhood data 
+crime_by_neighb_geo <- st_transform(auto_theft_2023_sf, st_crs(neighbs))
+crime_by_neighb_geo_since_2021 <- st_transform(auto_theft_since_2021_sf, st_crs(neighbs)) 
+
+
+# Perform a spatial join to find which points in fall within which neighborhood boundaries
+thefts_in_neighbs <- st_join(crime_by_neighb_geo, neighbs)
+thefts_in_neighbs_since_2021 <- st_join(crime_by_neighb_geo_since_2021, neighbs)
+
+# YOY change by neighborhood
+yoy_change_neighb <-
+  thefts_in_neighbs_since_2021 %>% 
+  # filter out neighborhood mismatches where geolocation neighborhood doesn't match listed neighborhood
+  filter(str_to_upper(name) == str_to_upper(neighborhood)) %>% 
+  group_by(name,
+           crime_date = case_when(crime_date_time >= "2021-01-01" & crime_date_time <= "2021-11-07" ~ "2021",
+                                  crime_date_time >= "2022-01-01" & crime_date_time <= "2022-11-07" ~ "2022",
+                                  crime_date_time >= "2023-01-01" ~ "2023",
+                                  TRUE ~ "no year"
+                                  )) %>% count() %>% 
+  pivot_wider(names_from = "crime_date", values_from = "n") %>% 
+  ungroup() %>% 
+  group_by(name) %>% 
+  summarise(x2021 = sum(`2021`, na.rm = T ),
+            x2022 = sum(`2022`, na.rm = T),
+            x2023 = sum(`2023`, na.rm = T),
+            difference_raw = x2023 - x2022) %>% 
+  arrange(desc(x2023)) 
+
+### Section 2: Examining Car thefts by block 
+
+# block intersections (for all auto thefts since 2022)
+intersections <-
+  read_csv("data/block_intersections.csv")
+
+
+# check for block intersections on all auto thefts 
+auto_theft_since_2022_corrected <- 
+  thefts_in_neighbs_since_2021 %>% 
+  filter(crime_date_time >= "2022-01-01") %>% 
+  filter(!is.na(geometry)) %>% 
+  filter(str_to_upper(name) == str_to_upper(neighborhood)) %>%
+  left_join(intersections) %>% 
+  filter(intersects == TRUE) %>% 
+  distinct(cc_number, gender, age, .keep_all = TRUE) 
+
+
+```
+
+"As of Nov. 7, 9,523 auto theft incidents --- car thefts or attempted auto thefts that can render cars heavily damaged and inoperable --- were reported in the city, which is more than triple the number of cars stolen from the same time period last year."
+
+```{r}
+# NOTE: Data is as of Nov. 7 2023
+
+# car thefts (2023)
+auto_theft_2023 %>% 
+  group_by(year = floor_date(crime_date_time, "year")) %>% 
+  count() %>% 
+  kbl() %>% 
+  kable_material_dark()
+```
+
+"More than 1,000 cars have been stolen in Baltimore every month since June."
+
+```{r pressure, echo=FALSE}
+# NOTE: Data is as of Nov. 7 2023
+
+auto_theft_mom <-
+  victims %>% 
+  filter(str_detect(str_to_upper(description), "AUTO THEFT")) %>% 
+  filter(crime_date_time >= "2023-01-01") %>% 
+  group_by(floor_date(crime_date_time, "month")) %>% 
+  count() %>% 
+  kbl() %>% 
+    kable_material_dark() %>% 
+    row_spec(6:10, bold = T, color = "white", background = "#1f937e")
+
+auto_theft_mom 
+```
+
+"During the peak of the auto theft crisis in July, police responded to over 25 auto theft incidents per 10,000 residents, more, by far, than any other county in the state."
+
+```{r}
+
+
+md_per_10k <-
+  read_csv("data/md_per_capita.csv")
+
+md_per_10k %>% 
+  filter(month > "2022-12-01" & month <= "2023-10-01") %>% 
+  kbl() %>% 
+  kable_material_dark() %>% 
+  column_spec(2, bold = T, color = "black", background = "#ffffdd")
+  
+```
+
+"In Frankford alone, there have been 350 reported auto theft incidents so far this year, more than in any other city neighborhood and an increase of 332% from the same time last year."
+
+"Nearby Belair-Edison had the second-most-stolen auto incidents, with more than 300, up from 78 this time last year."
+
+```{r}
+
+neighborhood_change <- 
+  yoy_change_neighb %>% 
+    as.data.frame() %>% 
+    select(-geometry) %>% 
+    head(25) 
+
+
+neighborhood_change %>% 
+    kbl() %>% 
+    kable_material_dark() %>% 
+    row_spec(1, bold = T, color = "white", background = "#4d2d8e") %>% 
+    row_spec(2, bold = T, color = "white", background = "#795eab")
+
+
+
+```
+
+"Those blocks, which include the 4900-5100 blocks of Goodnow Road and 4900 block of Gunther Avenue, saw seven reported auto thefts incidents all of last year. This year, there have already been 43."
+
+```{r}
+# Goodnow/Gunther auto theft incidents since 2022
+goodnow_rd <- auto_theft_since_2022_corrected %>%  
+  filter(location == "5000 goodnow road" | location == "4900 goodnow road" | location == "5100 goodnow road" | location == "4900 gunther ave") %>% 
+  select(crime_date_time, time_range, crime_code, location, neighborhood)
+
+# YOY change
+goodnow_chart <- 
+  goodnow_rd %>% 
+    as.data.frame() %>% 
+    group_by(year = floor_date(crime_date_time, "year")) %>% 
+    count() %>% 
+    kbl() 
+
+goodnow_chart %>% 
+    kable_material_dark() %>% 
+    row_spec(2, bold = T, color = "white", background = "#a3c4bd")
+
+
+# Map Goodnow Road/Gunther Ave auto theft incidents 
+goodnow_map <- 
+  mapview(goodnow_rd)
+
+goodnow_map
+
+
+```
+
+"From July 23 to 25, and again from Aug. 26 to 29, an auto theft incident was reported on those blocks every day."
+
+```{r}
+
+goodnow_daily_auto_theft <- goodnow_rd %>% 
+  filter(crime_date_time > "2022-12-31") %>% 
+  arrange(crime_date_time) %>% 
+  as.data.frame() %>% 
+  select(-geometry)
+
+goodnow_daily_auto_theft %>%   
+  kbl() %>% 
+  kable_material_dark() %>% 
+  row_spec(c(27:29, 24:25, 39:42, 2:3), bold = T, color = "white", background = "#a75bb3") %>% 
+  row_spec(c(16:19, 30:36), bold = T, color = "white", background = "#d1bcf4")
+  
+
+
+
+```
+
+"According to census data, about two-thirds of residents drive to work, about 20% higher than the average for the rest of the city. Residents commute around 30 minutes to their jobs on average"
+
+```{r}
+
+commute_data <- get_acs(
+  geography = "tract",
+  state = "MD",
+  county = "Baltimore City",
+  year = 2021,
+  variables = c(pop = "B01001_001", 
+                commuters = "B08006_001",
+                drove_alone = "B08006_003",
+                public_transit = "B08006_008",
+                biked = "B08006_014",
+                walked = "B08006_015",
+                other = "B08006_016",
+                worked_from_home = "B08006_017",
+                carpool = "B08006_004",
+                aggregate_commute_time = "B08013_001"
+                ),
+  geometry = TRUE
+  ) %>% 
+  st_transform(st_crs(goodnow_rd)) %>% 
+  pivot_wider(names_from = "variable", 
+              values_from = "estimate") %>% 
+  group_by(GEOID)  %>% 
+  summarise(pop = sum(pop, na.rm = T),
+            commuters = sum(commuters, na.rm =T),
+            drove_alone = sum(drove_alone, na.rm =T),
+            carpool = sum(carpool, na.rm =T),
+            public_transit = sum(public_transit, na.rm =T),
+            biked = sum(biked, na.rm =T),
+            walked = sum(walked, na.rm =T),
+            other = sum(other, na.rm =T),
+            worked_from_home = sum(worked_from_home, na.rm =T),
+            aggregate_commute_time = sum(aggregate_commute_time, na.rm =T)
+            ) %>% 
+  mutate(pct_drive_alone = drove_alone / commuters * 100,
+         sum = drove_alone + public_transit + biked + walked + other + worked_from_home + carpool,
+         avg_commute_time = aggregate_commute_time / (commuters - worked_from_home),
+         completeness = sum / commuters)
+
+
+goodnow_demos <-
+  st_join(goodnow_rd, commute_data) %>% 
+  distinct(GEOID, .keep_all = TRUE) %>% 
+  select(GEOID, 
+         neighborhood,
+         pct_drive_alone, 
+         avg_commute_time,
+         commuters, 
+         drove_alone, 
+         carpool, 
+         public_transit, 
+         biked,
+         walked, 
+         other, 
+         worked_from_home, 
+         completeness, 
+         aggregate_commute_time) 
+
+goodnow_demos %>% 
+  kbl() %>% 
+  kable_material_dark() %>% 
+  column_spec(3:4, bold = T, color = "black", background = "#b8d53f")
+  
+
+
+```

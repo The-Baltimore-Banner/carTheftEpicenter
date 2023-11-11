@@ -1,0 +1,201 @@
+```{r}
+library(tidyverse)
+library(janitor)
+
+library(lubridate)
+
+grouper <- function(input_df, group_by_column, new_column_name = "n()"){
+  output_df <- input_df %>%
+      group_by(.data[[group_by_column]]) %>%
+      summarise(temp_count = n()) %>%
+      mutate(percent = temp_count/sum(temp_count)*100) %>%
+      arrange(desc(percent)) %>%
+      rename(!!new_column_name := temp_count)
+  return(output_df)
+}
+
+group_count <- function(input_df, group_column_name='n()', state_filter=NA, start_col = 1){
+  column_names <- colnames(input_df)
+  if(!is.na(state_filter)){
+    input_df <- input_df %>%
+      filter(state == state_filter)
+  }
+  for (column in column_names[start_col:length(column_names)]){
+    output <- grouper(input_df, column, group_column_name)
+    print(output)
+  }
+}
+
+#lowers case of every character column in a dataframe
+lower_df <- function(input_df){
+  names <- colnames(input_df)
+  output_df <- input_df
+  names <- colnames(output_df)
+  for (name in names){
+    if (is.character(output_df[[name]])){
+      output_df[[name]] <- tolower(output_df[[name]])
+      #print('yes')
+    } else {
+      output_df[[name]] <- output_df[[name]]
+      #print('no')
+    }
+  }
+  return(output_df)
+}
+
+
+victims <- read_csv("data/most-recent-part-1-crime-data.csv") %>%
+  #cleaning column names
+  clean_names() %>%
+  #lowering text in df
+  lower_df()%>%
+  #converting to lubridate
+  mutate(crime_date_time = ymd_hms(crime_date_time)) %>%
+  #making year month hour columns
+  mutate(year = year(crime_date_time),
+         month = month(crime_date_time),
+         hour = hour(crime_date_time),
+         date = as_date(crime_date_time, 'day'))  %>%
+  #removing lat/long because there are multiples and ethnicity because it is unreliable
+  select(-row_id, -latitude, -longitude, -ethnicity) %>%#, -shape) %>%
+  #filtering for year
+  #filter(year >= 2011) %>%
+  #splitting geo location
+  separate(geo_location, c("latitude", "longitude"), ',') %>%
+  #removing parenthesis
+  mutate(latitude = gsub('\\(', '', latitude),
+         longitude = gsub('\\)', '', longitude)) %>%
+  #modifying ages that can't be or are very unlikely to be real
+  mutate(age = case_when(
+    age > 0 & age < 100 ~ age,
+    TRUE ~ NA_real_
+  )) %>%
+  #classifying age ranges
+  mutate(age_range = case_when(
+    age > 0 & age <= 12 ~ "child",
+    age <= 18 & age > 12 ~ "high school teen",
+    age >= 18 & age <= 25 ~ "19 to 25",
+    age >= 26 & age <= 34 ~ "26 to 34",
+    age >= 35 & age <= 50 ~ "35 to 50",
+    age > 50 & age < 75 ~ "51 to 74",
+    age >= 75 & age < 85 ~ "75 to 84",
+    age >= 85 ~ "85 to 100",
+    TRUE ~ "NA"
+  )) %>%
+  #adding high_school_age classification
+  mutate(high_school_age_range = case_when(
+    age < 19 & age > 0 ~ "high school age",
+    age >= 19 & age <= 25 ~ "19 to 25",
+    age >= 26 & age <= 34 ~ "26 to 34",
+    age >= 35 & age <= 50 ~ "35 to 50",
+    age > 50 & age < 75 ~ "51 to 74",
+    age >= 75 & age < 85 ~ "75 to 84",
+    age >= 85 ~ "85 to 100",
+    TRUE ~ "NA"
+  )) %>%
+  #classifying time of shooting
+  mutate(time_range = case_when(
+    hour <= 3 ~ "early morning",
+    hour < 12 & hour > 3 ~ "morning",
+    hour >= 12 & hour < 15 ~ "early afternoon",
+    hour >= 13 & hour < 17 ~ "after school",
+    hour >= 17 & hour < 20 ~ "evening",
+    hour >= 20 ~ "night"
+  ))  %>%
+  #labeling quarter by month
+    mutate(quarter = case_when(
+    month %in% c(1,2,3) ~ 1,
+    month %in% c(4,5,6) ~ 2,
+    month %in% c(7,8,9) ~ 3,
+    month %in% c(10,11,12) ~ 4
+  )) %>%
+  #labeling end date of each quarter for viz purposes
+  mutate(quarter_date = case_when(
+    quarter == 1 ~ ymd(paste0(year, "-3-31")),
+    quarter == 2 ~ ymd(paste0(year, "-6-30")),
+    quarter == 3 ~ ymd(paste0(year, "-9-30")),
+    quarter == 4 ~ ymd(paste0(year, "-12-31"))
+  )) %>%
+  #filter(year >= 2015) %>%
+  mutate(
+    time = format(as.POSIXct(crime_date_time), format =  "%I:%M:%S %p")
+  )  %>%
+  mutate(during_or_just_after_school = case_when(
+    hour >= 7 & hour <= 18 ~ TRUE,
+    TRUE ~ FALSE
+  )) %>%
+  unique()
+
+```
+
+#### auto thefts
+
+```{r}
+# 
+# 
+# auto_thefts <- victims %>%
+#   group_by(crime_date_time, location, district, neighborhood, premise, year, month, date, time_range, quarter, latitude, longitude) %>%
+#   #summarising characteristics of crimes victims
+#   summarise(victims = n(),
+#             child_victims = sum(age_range == "child"),
+#             child_homicides = sum(description == "homicide" & age_range == "child"),
+#             high_school_teen_homicides = sum(description == "homicide" & age_range == "juvenile"),
+#             high_school_teen_victims = sum(age_range == "high school teen"),
+#             homicides = sum(description == "homicide"),
+#             juvenile_homicides = sum(description == "homicide" & age_range == "juvenile"),
+#             average_age = mean(age, na.rm = TRUE),
+#             description = paste0(unique(description), collapse = ", "),
+#             age_of_victims = paste0(age, collapse = ", "),
+#             black_victims = sum(race == "black_or_african_american"),
+#             white_victims = sum(race == "white"),
+#             asian_victims = sum(race == "asian")
+#             ) %>%
+#   ungroup() %>%
+#   filter(description == "auto theft") 
+# 
+# 
+# auto_thefts_viz <- auto_thefts %>%
+#   group_by(year, month) %>%
+#   count() %>%
+#   mutate(month = mdy(paste0(month, "/1/", year))) %>%
+#   select(-year) %>%
+#   arrange(desc(month)) %>%
+#   filter(year > 2014,
+#          year < 2023)
+# 
+# temp_auto_thefts_viz <- auto_thefts %>%
+#   group_by(year, month) %>%
+#   count() %>%
+#   mutate(month = mdy(paste0(month, "/1/", year))) %>%
+#   select(-year) %>%
+#   arrange(desc(month)) %>%
+#   filter(year == 2023,
+#          month(month) < 7)
+# 
+# ytd_7_22_auto_thefts <- 5097
+# 
+# july_auto_thefts <- ytd_7_22_auto_thefts - sum(temp_auto_thefts_viz$n)
+#   
+# temp2_auto_thefts_viz <- auto_thefts %>%
+#   group_by(year, month) %>%
+#   count() %>%
+#   mutate(month = mdy(paste0(month, "/1/", year))) %>%
+#   select(-year) %>%
+#   arrange(desc(month)) %>%
+#   filter(year == 2023) %>%
+#   mutate(n = case_when(
+#     month(month) == 7 ~ july_auto_thefts,
+#     TRUE ~ n
+#   ))
+# 
+# auto_thefts_final <- auto_thefts_viz %>%
+#   bind_rows(temp2_auto_thefts_viz)
+# 
+# write_csv(auto_thefts_final, "data/output/auto-thefts-by-month-july.csv")
+# 
+# ggplot(auto_thefts_final, aes(x=month, y = n)) +
+#   geom_line() +
+#   labs(title = "Auto thefts by month in Baltimore City")
+#   
+
+```

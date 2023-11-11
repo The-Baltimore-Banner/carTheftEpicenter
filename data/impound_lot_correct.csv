@@ -1,0 +1,5 @@
+cc_number,crime_date_time,neighborhood,geometry
+23a00752,2023-01-01T12:00:00Z,pulaski industrial area,"c(-76.536509, 39.305638)"
+22j01015,2022-09-21T09:00:00Z,pulaski industrial area,"c(-76.5371919999999, 39.3056310000001)"
+22j01679,2022-09-10T09:57:00Z,pulaski industrial area,"c(-76.5371919999999, 39.3056310000001)"
+22j01015,2022-09-21T09:00:00Z,pulaski industrial area,"c(-76.5371919999999, 39.3056310000001)"

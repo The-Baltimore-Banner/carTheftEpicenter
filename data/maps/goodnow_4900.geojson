@@ -1,0 +1,8 @@
+{
+"type": "FeatureCollection",
+"name": "goodnow_4900",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "location": "4900 goodnow road", "thefts": 14 }, "geometry": { "type": "Point", "coordinates": [ -76.548488777278635, 39.326803666825661 ] } }
+]
+}

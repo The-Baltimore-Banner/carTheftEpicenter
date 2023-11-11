@@ -1,0 +1,8 @@
+{
+"type": "FeatureCollection",
+"name": "goodnow_5100",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "location": "5100 goodnow road", "thefts": 8 }, "geometry": { "type": "Point", "coordinates": [ -76.54543959999495, 39.326317800042958 ] } }
+]
+}

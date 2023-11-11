@@ -1,0 +1,8 @@
+{
+"type": "FeatureCollection",
+"name": "gunther_4900",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "location": "4900 gunther ave", "thefts": 9 }, "geometry": { "type": "Point", "coordinates": [ -76.549922986362191, 39.326618415224452 ] } }
+]
+}
