@@ -21,6 +21,8 @@ library(kableExtra)
 options(scipen=999)
 
 # Most recent part 1 crimes data 
+# download here: https://data.baltimorecity.gov/search?q=crime%20data
+# use init.qmd in data/car-thefts to reformat P1 crimes create "victims" object 
 victims <- read_csv("data/victims.csv")
 
 # Baltimore neighborhoods shapefile 
